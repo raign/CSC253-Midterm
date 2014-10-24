@@ -1,0 +1,178 @@
+<!DOCTYPE HTML>
+<html>
+<body>
+  <h1>Introduction</h1>
+  <p>
+    To trace the mechanics of a Python while loop, we wrote a very basic script
+    that involves incrementing a counter a few times in a while loop. The code
+    is as follows:
+  </p>
+
+  <pre><code>
+    x = 1
+    y = 5
+    while x < y:
+    	x += 1
+  </code></pre>
+
+The disassembled code is as follows:  
+  <pre><code>
+  1           0 LOAD_CONST               0 (1)
+              3 STORE_NAME               0 (x)
+
+  2           6 LOAD_CONST               1 (5)
+              9 STORE_NAME               1 (y)
+
+  3          12 SETUP_LOOP              26 (to 41)
+        >>   15 LOAD_NAME                0 (x)
+             18 LOAD_NAME                1 (y)
+             21 COMPARE_OP               0 (<)
+             24 POP_JUMP_IF_FALSE       40
+
+  4          27 LOAD_NAME                0 (x)
+             30 LOAD_CONST               0 (1)
+             33 INPLACE_ADD         
+             34 STORE_NAME               0 (x)
+             37 JUMP_ABSOLUTE           15
+        >>   40 POP_BLOCK           
+        >>   41 LOAD_CONST               2 (None)
+             44 RETURN_VALUE        
+  </code></pre>
+  <p>
+  Most if not all of those opcodes should look very familiar, as they have been covered
+  either in class or in previous assignments. The bytes that make up the core of the 
+  while loop functionality range from byte 12 to byte 40. The other byte codes are trivial
+  value and name management and program exit.
+
+<h1>NEED A NAME HERE LOL</h1>
+  <h2>SETUP_LOOP</h2>
+  <p>
+    As you might be able to recall, SETUP_LOOP is defined in ceval.c and has the following
+    key line of code, which is defined in frameobject.c:
+
+  <pre><code>
+    PyFrame_BlockSetup(f, opcode, INSTR_OFFSET() + oparg, STACK_LEVEL());
+  </code></pre>
+
+  <p>
+  The arguments passed in are as follows:
+  "f" is the frame object
+  "opcode" ends up being the "type" of block that gets set up
+  "INSTR_OFFSET() + oparg" ends up being used as the "handler", which is basically where to
+  jump to when the block is popped.
+  "STACK_LEVEL()" is the level of the value stack to jump to once the block is popped
+  </p>
+
+  <p>
+    PyFrame_BlockSetup() does a quick block stack overflow check to make sure that the new
+    block is allowed to exist by checking the current block number count, which is stored 
+   in the f_iblock field of the PyFrameObject struct, against the constant CO_MAXBLOCKS
+   defined in code.h, which is set to 20. If there are no problems, the a new block gets
+   added to the block stack (f_blockstack[]) that the frame object f keeps track of and
+   its fields are set to the corresponding arguments passed in.
+  </p>
+
+  <h2>COMPARE_OP</h2>
+
+  <p>
+  Hopefully, you remember the COMPARE_OP mechanism well enough, but we'll briefly go over
+  it here.
+  The top value, in our case, y, is popped off and the next value, in our case, x, is peeked
+  at to obtain its value. Once both values are obtained, Python checks to see if they're 
+  integers (and they are):
+  <pre><code>
+            if (PyInt_CheckExact(w) && PyInt_CheckExact(v)) {
+                /* INLINE: cmp(int, int) */
+                register long a, b;
+                register int res;
+                a = PyInt_AS_LONG(v);
+                b = PyInt_AS_LONG(w);
+                switch (oparg) {
+                ...
+                }
+            }
+            ...
+  </code></pre>
+  <p>
+  This is because comparing integers is really quick. Comparing integers involves
+  putting the two numbers through the addition hardware circuit in the ALU. The second number is
+  negated by flipping all of its bits and adding 1 to effectively convert to subtraction. The system
+  can then determine the outcome of the comparision from the registry flags that are raised after the
+  subraction. Python ends up converting the two numbers to longs to prevent potential overflow.
+  Python handles the integer comparison via a switch statement to see which compare operation
+  should be run and then runs it on the two longs and spits back the result as a Python boolean
+  (Py_True or Py_False).
+  </p>
+  <p>
+  To finish up, COMPARE_OP replaces the top value on the stack with the result and predicts a
+  POP_JUMP_IF_FALSE oparg to come next.
+  </p>
+
+<h2>INPLACE_ADD</h2>
+<p>
+  The setup for this is very similar to COMPARE_OP: the top value is popped off and the next value
+  is peeked at. Python then checks to see if they are integers (which they are) before converting
+  them to longs and running basic addition. The interesting part is after the addition is finished,
+  we see a bitwise xor check between the sum (i) and the two numbers added (a and b):
+</p>
+
+<pre><code>
+if ((i^a) < 0 && (i^b) < 0)
+</code></pre>
+
+<p>
+This is to check for overflow because even 64-bit integers can overflow. There are two cases in
+which the addition can overflow: both numbers are positive or both numbers are negative.
+In the positive case, under normal circumstances, two numbers added should produce a larger, but
+still positive number, meaning that the highest-order bit is 0. So when xor'd with positive numbers,
+the resulting number should remain positive. If the result ends up being negative, then xor would
+toggle both a and b's highest-order bit from 0 to 1, which would instantly convert it to a negative
+number. If that happens, then we know for a fact that the operation overflowed.
+</p>
+<p>
+In the negative case, under normal circumstances, two negative number should produce a larger
+negative number. Thus, when xor'd with a and b, i, if it remains negative, would toggle a and b's
+highest-order bit to 0, which would instantly convert them to positive numbers and thus pass the
+< 0 test. Otherwise, if it overflows, the 65th bit would be chopped off due to the convention of
+two's complement numbers and the highest order bit would be a 0, so a and b's highest order bits
+would remain 1 and fail the < 0 test.
+</p>
+<p>
+Beyond that, our script would just exit the if with i casted to int, complete some book keeping with
+reference counters, replace the top of the stack with the value of i and continue.
+</p>
+
+<h1>CONTROL FLOW</h1>
+<p>
+The while loop control flow is dominated by two opcodes: POP_JUMP_IF_FALSE and JUMP_ABSOLUTE.
+Since you are very familiar with this, I'll go over them only briefly.
+</p>
+
+<h2>POP_JUMP_IF_FALSE</h2>
+<p>
+POP_JUMP_IF_FALSE is usually predicted with <code>PREDICT(POP_JUMP_IF_FALSE);</code>
+like in COMPARE_OP. In our case, this opcode handles when the while condition is false and needs to
+jump to the end of the block. The general mechanics are quite simple: if the value at the top of the
+stack is "Py_True", then keep going with the next opcode. Otherwise, jump to the byte that is specified
+in the oparg. In our case, it jumps to byte 40, which is POP_BLOCK.
+</p>
+
+<h2>JUMP_ABSOLUTE</h2>
+<p>
+This happens at the end of the tryblock to jump back to the while loop's conditional. It jumps to the
+byte specified with the oparg.
+</p>
+
+<h1>CLEAN UP</h1>
+
+<h2>POP_BLOCK</h2>
+<p>
+Pops off the block with <code>PyFrame_BlockPop()</code>, which is defined in frameobject.c. This basically reverses
+what <code>PyFrame_BlockSetup()</code> does, including a stack underflow check to make sure the stack count doesn't
+go below 0.
+</p>
+<p>
+All other opargs are trivial.
+</p>
+</body>
+</html>
