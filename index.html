@@ -1,0 +1,305 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>Csc253-midterm by raign</title>
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
+    <script src="javascripts/respond.js"></script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <!--[if lt IE 8]>
+    <link rel="stylesheet" href="stylesheets/ie.css">
+    <![endif]-->
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+
+  </head>
+  <body>
+      <div id="header">
+        <nav>
+          <li class="fork"><a href="https://github.com/raign/CSC253-Midterm">View On GitHub</a></li>
+          <li class="downloads"><a href="https://github.com/raign/CSC253-Midterm/zipball/master">ZIP</a></li>
+          <li class="downloads"><a href="https://github.com/raign/CSC253-Midterm/tarball/master">TAR</a></li>
+          <li class="title">DOWNLOADS</li>
+        </nav>
+      </div><!-- end header -->
+
+    <div class="wrapper">
+
+      <section>
+        <div id="title">
+          <h1>Csc253-midterm</h1>
+          <p>Midterm Blogpost. Jinze An and Christian Djoe</p>
+          <hr>
+          <span class="credits left">Project maintained by <a href="https://github.com/raign">raign</a></span>
+          <span class="credits right">Hosted on GitHub Pages &mdash; Theme by <a href="https://twitter.com/michigangraham">mattgraham</a></span>
+        </div>
+
+        <p>
+</p>
+
+<h1>
+<a name="table-of-contents" class="anchor" href="#table-of-contents"><span class="octicon octicon-link"></span></a>Table of Contents</h1>
+
+<ul>
+<li><a href="#Introduction">Introduction</a></li>
+<ul>
+<li><a href="#Execution">Execution Overview</a></li>
+</ul>
+
+<p></p>
+<li><a href="#Core">Core Mechanics</a></li>
+
+<ul>
+<li><a href="#SETUP_LOOP">SETUP_LOOP</a></li>
+<li><a href="#COMPARE_OP">COMPARE_OP</a></li>
+<li><a href="#INPLACE_ADD">INPLACE_ADD</a></li>
+</ul>
+
+<p></p>
+<li><a href="#Control">Control Flow</a></li>
+
+<ul>
+<li><a href="#POP_JUMP">POP_JUMP_IF_FALSE</a></li>
+<li><a href="#JUMP">JUMP_ABSOLUTE</a></li>
+</ul>
+
+<p></p>
+<li><a href="#Clean">Clean Up</a></li>
+
+<ul>
+<li><a href="#POP_BLOCK">POP_BLOCK</a></li>
+</ul>
+
+<p></p>
+</ul>
+
+<h1>
+<a name="introduction" class="anchor" href="#introduction"><span class="octicon octicon-link"></span></a>Introduction</h1>
+
+<p>
+To trace the mechanics of a Python while loop, we wrote a very basic script
+that involves incrementing a counter a few times in a while loop.
+</p>
+
+<p>
+The code is as follows:
+</p>
+
+<pre><code>
+  x = 1
+  y = 5
+  while x &lt; y:
+    x += 1
+</code></pre>
+
+<p>
+The disassembled code is as follows:  
+</p>
+
+<pre><code>
+  1           0 LOAD_CONST               0 (1)
+              3 STORE_NAME               0 (x)
+
+  2           6 LOAD_CONST               1 (5)
+              9 STORE_NAME               1 (y)
+
+  3          12 SETUP_LOOP              26 (to 41)
+        &gt;&gt;   15 LOAD_NAME                0 (x)
+             18 LOAD_NAME                1 (y)
+             21 COMPARE_OP               0 (&lt;)
+             24 POP_JUMP_IF_FALSE       40
+
+  4          27 LOAD_NAME                0 (x)
+             30 LOAD_CONST               0 (1)
+             33 INPLACE_ADD         
+             34 STORE_NAME               0 (x)
+             37 JUMP_ABSOLUTE           15
+        &gt;&gt;   40 POP_BLOCK           
+        &gt;&gt;   41 LOAD_CONST               2 (None)
+             44 RETURN_VALUE        
+</code></pre>
+
+<p>
+Most if not all of those opcodes should look very familiar, as they have been covered
+either in class or in previous assignments. The bytes that make up the core of the 
+while loop functionality range from byte 12 to byte 40. The other byte codes are trivial
+value and name management and program exit.
+</p>
+
+<h2>
+<a name="execution-overview" class="anchor" href="#execution-overview"><span class="octicon octicon-link"></span></a>Execution Overview</h2>
+
+<p>
+In terms of what the program will actually step through:<br>
+Once it gets to byte 15...<br>
+1. The two <code>LOAD_NAME</code>s will execute<br>
+2. <code>COMPARE_OP</code><br>
+3. <code>POP_JUMP_IF_FALSE</code> will bleed through to <code>LOAD_NAME</code> until <code>x</code> = 5<br>
+4. <code>LOAD_NAME</code>, <code>LOAD_CONST</code>, <code>INPLACE_ADD</code>, and <code>STORE_NAME</code> will execute to increment <code>x</code><br>
+5. <code>JUMP_ABSOLUTE</code> will jump back to byte 15 to recheck the condition for the while loop.<br>
+Once <code>x</code> = 5, <code>POP_JUMP_IF_FALSE</code> will jump us to byte 40 to execute <code>POP_BLOCK</code>
+before cleaning up with <code>LOAD_CONST</code> and <code>RETURN_VALUE</code>
+</p>
+
+<h1>
+<a name="core-mechanics" class="anchor" href="#core-mechanics"><span class="octicon octicon-link"></span></a>Core Mechanics</h1>
+
+<h2>
+<a name="setup_loop" class="anchor" href="#setup_loop"><span class="octicon octicon-link"></span></a>SETUP_LOOP</h2>
+
+<p>
+As you might be able to recall, <code>SETUP_LOOP</code> is defined in <code>ceval.c</code> and has the following
+key line of code, which is defined in <code>frameobject.c</code>:
+</p><pre><code>
+PyFrame_BlockSetup(f, opcode, INSTR_OFFSET() + oparg, STACK_LEVEL());
+</code></pre>
+<p>
+The arguments passed in are as follows:
+<code>f</code> is the frame object
+<code>opcode</code> ends up being the "type" of block that gets set up
+<code>INSTR_OFFSET() + oparg</code> ends up being used as the "handler", which is basically where to
+jump to when the block is popped.
+<code>STACK_LEVEL()</code> is the level of the value stack to jump to once the block is popped
+</p>
+
+<p>
+<code>PyFrame_BlockSetup()</code> does a quick block stack overflow check to make sure that the new
+block is allowed to exist by checking the current block number count, which is stored 
+in the <code>f_iblock</code> field of the <code>PyFrameObject</code> struct, against the constant <code>CO_MAXBLOCKS</code>
+defined in <code>code.h</code>, which is set to 20. If there are no problems, the a new block gets
+added to the block stack (<code>f_blockstack[]</code>) that the frame object <code>f</code> keeps track of and
+its fields are set to the corresponding arguments passed in.
+</p>
+
+<h2>
+<a name="compare_op" class="anchor" href="#compare_op"><span class="octicon octicon-link"></span></a>COMPARE_OP</h2>
+
+<p>
+Hopefully, you remember the <code>COMPARE_OP</code> mechanism well enough, but we'll briefly go over
+it here.
+The top value, in our case, <code>y</code>, is popped off and the next value, in our case, <code>x</code>, is peeked
+at to obtain its value. Once both values are obtained, Python checks to see if they're 
+integers (and they are):
+</p><pre><code>
+if (PyInt_CheckExact(w) &amp;&amp; PyInt_CheckExact(v)) {
+  /* INLINE: cmp(int, int) */
+  register long a, b;
+  register int res;
+  a = PyInt_AS_LONG(v);
+  b = PyInt_AS_LONG(w);
+  switch (oparg) {
+    ...
+  }
+}
+...
+</code></pre>
+<p>
+This is because comparing integers is really quick. Comparing integers involves
+putting the two numbers through the addition hardware circuit in the ALU. The second number is
+negated by flipping all of its bits and adding 1 to effectively convert to subtraction. The system
+can then determine the outcome of the comparison from the registry flags that are raised after the
+subtraction. Python ends up converting the two numbers to longs to prevent potential overflow.
+Python handles the integer comparison via a switch statement to see which compare operation
+should be run and then runs it on the two longs and spits back the result as a Python boolean
+(<code>Py_True</code> or <code>Py_False</code>).
+</p>
+
+<p>
+To finish up, <code>COMPARE_OP</code> replaces the top value on the stack with the result and predicts a
+<code>POP_JUMP_IF_FALSE</code> opcode to come next.
+</p>
+
+<h2>
+<a name="inplace_add" class="anchor" href="#inplace_add"><span class="octicon octicon-link"></span></a>INPLACE_ADD</h2>
+
+<p>
+The setup for this is very similar to <code>COMPARE_OP</code>: the top value is popped off and the next value
+is peeked at. Python then checks to see if they are integers (which they are) before converting
+them to longs and running basic addition. The interesting part is after the addition is finished,
+we see a bitwise xor check between the sum <code>i</code> and the two numbers added <code>a</code> and <code>b</code>:
+</p>
+
+<pre><code>
+if ((i^a) &lt; 0 &amp;&amp; (i^b) &lt; 0)
+</code></pre>
+
+<p>
+This is to check for overflow because even 64-bit integers can overflow. There are two cases in
+which the addition can overflow: both numbers are positive or both numbers are negative.
+In the positive case, under normal circumstances, two numbers added should produce a larger, but
+still positive number, meaning that the highest-order bit is 0. So when xor'd with positive numbers,
+the resulting number should remain positive. If the result ends up being negative, then xor would
+toggle both a and b's highest-order bit from 0 to 1, which would instantly convert it to a negative
+number. If that happens, then we know for a fact that the operation overflowed.
+</p>
+
+<p>
+In the negative case, under normal circumstances, two negative number should produce a larger
+negative number. Thus, when xor'd with a and b, i, if it remains negative, would toggle a and b's
+highest-order bit to 0, which would instantly convert them to positive numbers and thus pass the
+&lt; 0 test. Otherwise, if it overflows, the 65th bit would be chopped off due to the convention of
+two's complement numbers and the highest order bit would be a 0, so a and b's highest order bits
+would remain 1 and fail the &lt; 0 test.
+</p>
+
+<p>
+Beyond that, our script would just exit the if with <code>i</code> casted to int, complete some book keeping with
+reference counters, replace the top of the stack with the value of <code>i</code> and <code>continue</code>.
+</p>
+
+<h1>
+<a name="control-flow" class="anchor" href="#control-flow"><span class="octicon octicon-link"></span></a>Control Flow</h1>
+
+<p>
+The while loop control flow is dominated by two opcodes: <code>POP_JUMP_IF_FALSE</code> and <code>JUMP_ABSOLUTE</code>.
+Since you are very familiar with this, I'll go over them only briefly.
+</p>
+
+<h2>
+<a name="pop_jump_if_false" class="anchor" href="#pop_jump_if_false"><span class="octicon octicon-link"></span></a>POP_JUMP_IF_FALSE</h2>
+
+<p>
+<code>POP_JUMP_IF_FALSE</code> is usually predicted with <code>PREDICT(POP_JUMP_IF_FALSE);</code>
+like in <code>COMPARE_OP</code>. In our case, this opcode handles when the while condition is false and needs to
+jump to the end of the block. The general mechanics are quite simple: if the value at the top of the
+stack is <code>Py_True</code>, then keep going with the next opcode. Otherwise, jump to the byte that is specified
+in the oparg. In our case, it jumps to byte 40, which is <code>POP_BLOCK</code>.
+</p>
+
+<h2>
+<a name="jump_absolute" class="anchor" href="#jump_absolute"><span class="octicon octicon-link"></span></a>JUMP_ABSOLUTE</h2>
+
+<p>
+This happens at the end of the tryblock to jump back to the while loop's conditional. It jumps to the
+byte specified with the oparg.
+</p>
+
+<h1>
+<a name="clean-up" class="anchor" href="#clean-up"><span class="octicon octicon-link"></span></a>Clean Up</h1>
+
+<h2>
+<a name="pop_block" class="anchor" href="#pop_block"><span class="octicon octicon-link"></span></a>POP_BLOCK</h2>
+
+<p>
+Pops off the block with <code>PyFrame_BlockPop()</code>, which is defined in frameobject.c. This basically reverses
+what <code>PyFrame_BlockSetup()</code> does, including a stack underflow check to make sure the stack count doesn't
+go below 0.
+</p>
+
+<p>
+All other opcodes are trivial.
+</p>
+
+<p>
+</p>
+      </section>
+
+    </div>
+    <!--[if !IE]><script>fixScale(document);</script><![endif]-->
+    
+  </body>
+</html>
